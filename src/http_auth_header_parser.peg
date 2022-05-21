@@ -1,0 +1,90 @@
+%prefix "sasl_header"
+
+# packcc -l sasl_header.peg && gcc -o sasl_header sasl_header.c && ./sasl_header
+# outputs
+# c2s : vqIkiXo9hh740PGdOKSXYkNIfPNwQxx028LBjVVxHRcAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2iFbpPZ0yQ051VgeZtfYS2Tsam8EryENhhSfagov994cwBzAA==
+# realm: localhost
+# mech: OPAQUE
+
+%header {
+#include "sasl_header_parser.h"
+}
+
+%source {
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+
+#define PCC_GETCHAR(auxil) next_chr(auxil)
+
+static int next_chr(sasl_header_fields_t *auxil) {
+   if(auxil->input_ptr < auxil->input_len) {
+       return auxil->input[auxil->input_ptr++];
+   }
+   return EOF;
+}
+
+}
+
+%auxil "sasl_header_fields_t*"
+
+header <- [Ss][Aa][Ss][Ll] assertion (',' assertion )*
+
+assertion <- _ (msg/mech/realm) _
+
+# s2c is not needed in a server
+# msg <- s2s / s2c / c2s
+msg <- s2s / c2s
+s2s <- "s2s" _ '=' _ '"' < [0-9a-fA-F]+ > '"' {
+    errno = 0;
+    long tmp = strtoul($1,NULL,16);
+    if (errno == 0) auxil->s2s = tmp;
+}
+# s2c <- "s2c" _ '=' _ '"' < base64string > '"' { auxil->s2c = strdup($1); }
+c2s <- "c2s" _ '=' _ '"' < base64string > '"' { auxil->c2s = strdup($1); }
+
+mech <- [Mm][Ee][Cc][Hh] _ '=' _  '"' < mechstring > '"' { auxil->mech = strdup($1);}
+realm <- [Rr][Ee][Aa][Ll][Mm] _ '=' _ '"' < realmstring > '"' { auxil->realm = strdup($1);}
+
+realmstring <- [^"\\]*
+mechstring <- [A-Z0-9-_][A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?
+base64string <- [a-zA-Z0-9-._~+/]*'='*
+_      <- [ \t]*
+
+
+%%
+
+void parse_header(sasl_header_fields_t *auxil, const unsigned char* header, const size_t header_len) {
+   auxil->input = (const char*) header;
+   auxil->input_len = header_len;
+   sasl_header_context_t *ctx = sasl_header_create(auxil);
+   while (sasl_header_parse(ctx, NULL));
+   sasl_header_destroy(ctx);
+}
+
+void clear_parsed(sasl_header_fields_t *auxil) {
+   if(auxil->mech) free(auxil->mech);
+   if(auxil->realm) free(auxil->realm);
+   if(auxil->s2c) free(auxil->s2c);
+   if(auxil->c2s) free(auxil->c2s);
+}
+
+#ifdef TEST
+int main(void) {
+   sasl_header_fields_t parsed={0};
+   const char header[]="SASL c2s=\"vqIkiXo9hh740PGdOKSXYkNIfPNwQxx028LBjVVxHRcAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH2iFbpPZ0yQ051VgeZtfYS2Tsam8EryENhhSfagov994cwBzAA==\",realm=\"localhost\",mech=\"OPAQUE\"";
+   parse_header(&parsed, header, strlen(header));
+
+   if(parsed.mech) printf("mech: %s\n", parsed.mech);
+   if(parsed.realm) printf("realm: %s\n", parsed.realm);
+   if(parsed.s2s) printf("s2s: %ld\n", parsed.s2s);
+   if(parsed.s2c) printf("s2c: %s\n", parsed.s2c);
+   if(parsed.c2s) printf("c2s: %s\n", parsed.c2s);
+
+   // cleanup
+   clear_parsed(&parsed);
+
+   return 0;
+}
+#endif
