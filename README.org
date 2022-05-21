@@ -1,0 +1,13 @@
+* NGINX HTTP SASL authentication module
+
+This is experimental.
+
+** Dependencies
+If you want to build this, it expects an nginx source tree in '../nginx'
+
+you also need https://github.com/arithy/packcc in '../packcc/'
+
+you can test with this script:
+https://github.com/stef/libopaque/blob/master/sasl/http_sasl.py if you
+have also the opaque mechanism installed from the libopaque
+repo. Otherwise adapt the script to use a different mechanism.
