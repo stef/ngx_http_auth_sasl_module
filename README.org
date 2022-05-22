@@ -7,6 +7,8 @@ If you want to build this, it expects an nginx source tree in '../nginx'
 
 you also need https://github.com/arithy/packcc in '../packcc/'
 
+** Deployment
+
 you can test with this script:
 https://github.com/stef/libopaque/blob/master/sasl/http_sasl.py if you
 have also the opaque mechanism installed from the libopaque
@@ -14,6 +16,25 @@ repo. Otherwise adapt the script to use a different mechanism.
 
 In any case the Makefile explains it all, or has pointers to more
 information.
+
+** Limitations
+
+One possible limitation is that SASL is(/can be) stateful, and the
+state is currently kept in a worker process. If different worker
+processes handle the different steps of the same authentication flow
+then the state will be a problem, as it is currently not shared
+between worker processes. Sadly the state used by cyrus sasl contains
+all kind of pointers, especially function pointers (which should be
+the same, but this is depending also on the SASL mech probably) and
+thus using shared memory to share the contexts could lead to problems.
+
+Even more of a limitation is if the SASL auth is terminated at servers
+behind a load balancer, the SASL state must be known by the backend
+server, otherwise it will not succeed, thus a load balancer must make
+sure that the same backend server is used for the whole of a SASL auth
+execution.
+
+** Credits
 
 This project was funded through the NGI0 PET Fund, a fund established
 by NLnet with financial support from the European Commission's Next
