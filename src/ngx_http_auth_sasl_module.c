@@ -162,7 +162,7 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
                    r->headers_in.authorization->value.len);
 
       if(parsed.c2s) {
-        if (SASL_OK == sasl_decode64(parsed.c2s, (unsigned) strlen(parsed.c2s),
+        if (SASL_OK == sasl_decode64(parsed.c2s, parsed.c2s_len,
                                      buf, NGX_SASL_SEC_BUF_SIZE, &clientinlen)) {
           ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "decoded c2s");
           clientin = buf;
@@ -190,7 +190,10 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
             (void) sc_map_get_64v(lcf->conns, id);
           } while(sc_map_found(lcf->conns));
           sc_map_put_64v(lcf->conns, id, conn);
-          result = sasl_server_start(conn, parsed.mech,
+          char mech[parsed.mech_len+1];
+          memcpy(mech,parsed.mech,parsed.mech_len);
+          mech[parsed.mech_len]=0;
+          result = sasl_server_start(conn, mech,
                                      clientin, clientinlen,
                                      &serverout, &serveroutlen);
           ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
@@ -295,9 +298,6 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
         }
       }
       //sc_map_term_64v(&map);
-
-      // cleanup
-      clear_parsed(&parsed);
 
       //if(NGX_OK != rc) {
       //  return NGX_ERROR;

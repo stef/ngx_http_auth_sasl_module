@@ -41,11 +41,23 @@ s2s <- "s2s" _ '=' _ '"' < [0-9a-fA-F]+ > '"' {
     long tmp = strtoul($1,NULL,16);
     if (errno == 0) auxil->s2s = tmp;
 }
-# s2c <- "s2c" _ '=' _ '"' < base64string > '"' { auxil->s2c = strdup($1); }
-c2s <- "c2s" _ '=' _ '"' < base64string > '"' { auxil->c2s = strdup($1); }
+# s2c <- "s2c" _ '=' _ '"' < base64string > '"' {
+#    auxil->s2c = auxil->input + $1s;
+#    auxil->s2c_len = $1e - $1s;
+#}
+c2s <- "c2s" _ '=' _ '"' < base64string > '"' {
+    auxil->c2s = auxil->input + $1s;
+    auxil->c2s_len = $1e - $1s;
+}
 
-mech <- [Mm][Ee][Cc][Hh] _ '=' _  '"' < mechstring > '"' { auxil->mech = strdup($1);}
-realm <- [Rr][Ee][Aa][Ll][Mm] _ '=' _ '"' < realmstring > '"' { auxil->realm = strdup($1);}
+mech <- [Mm][Ee][Cc][Hh] _ '=' _  '"' < mechstring > '"' {
+    auxil->mech = auxil->input + $1s;
+    auxil->mech_len = $1e - $1s;
+}
+realm <- [Rr][Ee][Aa][Ll][Mm] _ '=' _ '"' < realmstring > '"' {
+     auxil->realm = auxil->input + $1s;
+     auxil->realm_len = $1e - $1s;
+}
 
 realmstring <- [^"\\]*
 mechstring <- [A-Z0-9-_][A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?[A-Z0-9-_]?
@@ -63,13 +75,6 @@ void parse_header(sasl_header_fields_t *auxil, const unsigned char* header, cons
    sasl_header_destroy(ctx);
 }
 
-void clear_parsed(sasl_header_fields_t *auxil) {
-   if(auxil->mech) free(auxil->mech);
-   if(auxil->realm) free(auxil->realm);
-   if(auxil->s2c) free(auxil->s2c);
-   if(auxil->c2s) free(auxil->c2s);
-}
-
 #ifdef TEST
 int main(void) {
    sasl_header_fields_t parsed={0};
@@ -81,9 +86,6 @@ int main(void) {
    if(parsed.s2s) printf("s2s: %ld\n", parsed.s2s);
    if(parsed.s2c) printf("s2c: %s\n", parsed.s2c);
    if(parsed.c2s) printf("c2s: %s\n", parsed.c2s);
-
-   // cleanup
-   clear_parsed(&parsed);
 
    return 0;
 }

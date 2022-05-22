@@ -4,11 +4,15 @@
 #include <stdlib.h>
 
 typedef struct {
-  char *realm;
-  char *mech;
+  const char *realm;
+  size_t realm_len;
+  const char *mech;
+  size_t mech_len;
   unsigned long s2s;
-  char *c2s;
-  char *s2c;
+  const char *c2s;
+  size_t c2s_len;
+  const char *s2c;
+  size_t *s2c_len;
   const char* input;
   size_t input_len;
   size_t input_ptr;
@@ -16,6 +20,5 @@ typedef struct {
 
 
 void parse_header(sasl_header_fields_t *auxil, const unsigned char* header, const size_t header_len);
-void clear_parsed(sasl_header_fields_t *auxil);
 
 #endif // sasl_header_parser_h
