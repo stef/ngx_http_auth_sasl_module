@@ -137,7 +137,7 @@ static void store_conn(ngx_http_auth_sasl_loc_conf_t  *lcf, sasl_conn_t *conn, l
 static ngx_int_t
 ngx_http_auth_sasl_handler(ngx_http_request_t *r)
 {
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "SASL HANDLER");
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "SASL HANDLER");
 
     ngx_http_auth_sasl_loc_conf_t  *lcf;
     //ngx_int_t                       rc;
@@ -149,12 +149,12 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
-    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
             "SASL HANDLER REALM: %s", lcf->realm.data);
 
     sasl_conn_t *conn = NULL;
     if(r->headers_in.authorization) {
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+      ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "Authorize Header: %s", r->headers_in.authorization->value.data);
 
       // parse auth line
@@ -169,7 +169,7 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
       if(parsed.c2s) {
         if (SASL_OK == sasl_decode64(parsed.c2s, (unsigned) strlen(parsed.c2s),
                                      buf, SAMPLE_SEC_BUF_SIZE, &clientinlen)) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "decoded c2s");
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "decoded c2s");
           clientin = buf;
         }
       }
@@ -190,25 +190,30 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
                                  SASL_SUCCESS_DATA,  /* security flags (security layers are enabled
                                                         using security properties, separately) */
                                  &conn);
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "new sasl_server: %d", result);
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                      "new sasl_server: %d", result);
         if(SASL_OK == result) {
           store_conn(lcf, conn, &id);
-          result = sasl_server_start(conn, parsed.mech, clientin, clientinlen, &serverout, &serveroutlen);
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "starting sasl_server: %d", result);
+          result = sasl_server_start(conn, parsed.mech,
+                                     clientin, clientinlen,
+                                     &serverout, &serveroutlen);
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "starting sasl_server: %d", result);
         }
       } else {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "loading sasl_server");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "loading sasl_server");
         conn = sc_map_get_64v(lcf->conns, parsed.s2s);
         if (!sc_map_found(lcf->conns)) {
           conn = NULL;
         }
         result = sasl_server_step(conn, clientin, clientinlen, &serverout, &serveroutlen);
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "stepping sasl_server: %d", result);
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                      "stepping sasl_server: %d", result);
         id = parsed.s2s;
       }
 
       if (result != SASL_OK && result != SASL_CONTINUE) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                       "ERROR starting SASL negotiation: %s",
                       sasl_errstring(result, NULL, NULL));
         return NGX_HTTP_UNAUTHORIZED;
@@ -240,10 +245,10 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
         r->headers_out.www_authenticate->key.data = (u_char*) HEADER_NAME;
         r->headers_out.www_authenticate->value.data = val;
         r->headers_out.www_authenticate->value.len = vallen;
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "asdf header set");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "sasl header set");
 
         if (result == SASL_OK) {
-          ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "asdf in sasl_ok");
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "sasl_ok");
           // todo? in the apache mod it sets some env vars for subprocess.
           //const char *user;
           //r->user = "unknown";
@@ -286,7 +291,7 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
       //if(NGX_OK != rc) {
       //  return NGX_ERROR;
       //}
-      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "asdf returning n-h-unauth");
+      ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "sasl returning 401");
       return NGX_HTTP_UNAUTHORIZED;
     }
 
@@ -346,13 +351,13 @@ ngx_http_auth_sasl_init(ngx_conf_t *cf)
     if (result != SASL_OK) {
       return NGX_ERROR;
     }
-    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "sasl_server_init succeeded");
+    ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_server_init succeeded");
 
 #ifdef DEBUG_SASL
     const char **mechlist = sasl_global_listmech();
     char *mech;
     while ((mech = (char*) *mechlist++) != NULL) {
-      ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "mech: %s", mech);
+      ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "mech: %s", mech);
     }
 #endif
 
