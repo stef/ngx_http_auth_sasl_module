@@ -15,4 +15,7 @@ repo. Otherwise adapt the script to use a different mechanism.
 In any case the Makefile explains it all, or has pointers to more
 information.
 
-This project was funded through the NGI0 PET Fund, a fund established by NLnet with financial support from the European Commission's Next Generation Internet programme, under the aegis of DG Communications Networks, Content and Technology under grant agreement No 825310.
+This project was funded through the NGI0 PET Fund, a fund established
+by NLnet with financial support from the European Commission's Next
+Generation Internet programme, under the aegis of DG Communications
+Networks, Content and Technology under grant agreement No 825310.
