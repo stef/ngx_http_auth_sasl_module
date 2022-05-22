@@ -204,7 +204,22 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "loading sasl_server");
         conn = sc_map_get_64v(lcf->conns, parsed.s2s);
         if (!sc_map_found(lcf->conns)) {
-          conn = NULL;
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "sasl context not found, restarting auth dance");
+          //conn = NULL;
+
+          if(r->headers_out.www_authenticate) {
+            const unsigned int vallen = strlen("SASL s2c=\"\",s2s=\"\"") + 16;
+            unsigned char val[vallen], *p;
+            p = ngx_snprintf(val, vallen, "SASL s2c=\"\",s2s=\"%p\"", parsed.s2s);
+            if(vallen != (p - val)) {
+              return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+            if(ngx_memcmp(val, r->headers_out.www_authenticate->value.data, vallen)==0) {
+              return NGX_OK;
+            }
+          }
+          return NGX_HTTP_UNAUTHORIZED;
         }
         result = sasl_server_step(conn, clientin, clientinlen, &serverout, &serveroutlen);
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
