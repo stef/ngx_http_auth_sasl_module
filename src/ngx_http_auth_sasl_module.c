@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2014 Julie Koubova <juliekoubova@icloud.com>
+ * Copyright (C) 2022 Stefan Marsiske <opaque@ctrlc.hu>
  *
  * Based on 'ngx_http_auth_basic_module.c' by Igor Sysoev and
  * 'ngx_http_auth_pam_module.c' by Sergio Talens-Oliag.
@@ -29,10 +29,10 @@ typedef struct {
   sasl_callback_t *callbacks;
 } ngx_http_auth_sasl_loc_conf_t;
 
-static ngx_str_t    shm_name = ngx_string("sasl_contexts");
+//static ngx_str_t    shm_name = ngx_string("sasl_contexts");
 
-#define SAMPLE_SEC_BUF_SIZE (2048)
-#define HTTP_SERVICE_NAME "HTTP"
+#define NGX_SASL_SEC_BUF_SIZE (2048)
+#define NGX_SASL_HTTP_SERVICE_NAME "HTTP"
 
 /*
  * The public interface of this module.
@@ -83,8 +83,15 @@ static const sasl_callback_t callbacks[] = {
 static ngx_int_t
 ngx_http_auth_sasl_unauthorized(ngx_http_request_t *r, const ngx_http_auth_sasl_loc_conf_t  *lcf)
 {
+    u_char                *processed;
+    u_char                *p;
+    size_t                len;
+    static const char     PREFIX[]        = "SASL realm=\"";
+    static const char     MECH[]          = "\",mech=\"";
     static const u_char   HEADER_NAME[]   = "WWW-Authenticate";
-    static const size_t HEADER_NAME_LEN = sizeof(HEADER_NAME) - 1;
+    static const size_t   HEADER_NAME_LEN = sizeof(HEADER_NAME) - 1;
+    static const size_t   PREFIX_LEN      = sizeof(PREFIX) - 1;
+    static const size_t   MECH_LEN        = sizeof(MECH) - 1;
 
     r->headers_out.www_authenticate = ngx_list_push(&r->headers_out.headers);
     if (r->headers_out.www_authenticate == NULL) {
@@ -95,16 +102,7 @@ ngx_http_auth_sasl_unauthorized(ngx_http_request_t *r, const ngx_http_auth_sasl_
     r->headers_out.www_authenticate->key.len = (size_t) HEADER_NAME_LEN;
     r->headers_out.www_authenticate->key.data = (u_char*) HEADER_NAME;
 
-    // WWW-Authenticate: SASL s2s="",realm="SASL http auth test",mech="OPAQUE"
-    static const char   PREFIX[]   = "SASL realm=\"";
-    static const size_t PREFIX_LEN = sizeof(PREFIX) - 1;
-
-    static const char   MECH[]   = "\",mech=\"";
-    static const size_t MECH_LEN = sizeof(MECH) - 1;
-
-    u_char     *processed;
-    u_char     *p;
-    size_t      len;
+    /* WWW-Authenticate: SASL s2s="",realm="SASL http auth test",mech="OPAQUE" */
 
     len = PREFIX_LEN + lcf->realm.len + MECH_LEN + lcf->mechs.len + 1;
 
@@ -125,22 +123,13 @@ ngx_http_auth_sasl_unauthorized(ngx_http_request_t *r, const ngx_http_auth_sasl_
     return NGX_HTTP_UNAUTHORIZED;
 }
 
-static void store_conn(ngx_http_auth_sasl_loc_conf_t  *lcf, sasl_conn_t *conn, long *id) {
-  do {
-    *id = ngx_random();
-    if(*id==0) continue; // never allow 0 id
-    (void) sc_map_get_64v(lcf->conns, *id);
-  } while(sc_map_found(lcf->conns));
-  sc_map_put_64v(lcf->conns, *id, conn);
-}
-
 static ngx_int_t
-ngx_http_auth_sasl_handler(ngx_http_request_t *r)
-{
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "SASL HANDLER");
+ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
 
+    sasl_conn_t                    *conn = NULL;
     ngx_http_auth_sasl_loc_conf_t  *lcf;
-    //ngx_int_t                       rc;
+
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "SASL HANDLER");
 
     lcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_sasl_module);
 
@@ -152,34 +141,36 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
             "SASL HANDLER REALM: %s", lcf->realm.data);
 
-    sasl_conn_t *conn = NULL;
     if(r->headers_in.authorization) {
+      int                  result;
+      int                  result2;
+      char                 buf[NGX_SASL_SEC_BUF_SIZE];
+      long                 id=0;
+      unsigned             clientinlen = 0;
+      unsigned             serveroutlen = 0;
+      unsigned             len;
+      const char           *clientin = NULL;
+      const char           *serverout;
+      sasl_header_fields_t parsed={0};
+
       ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                     "Authorize Header: %s", r->headers_in.authorization->value.data);
 
       // parse auth line
-      sasl_header_fields_t parsed={0};
       parse_header(&parsed,
                    r->headers_in.authorization->value.data,
                    r->headers_in.authorization->value.len);
 
-      const char *clientin = NULL;
-      unsigned clientinlen = 0;
-      char buf[SAMPLE_SEC_BUF_SIZE];
       if(parsed.c2s) {
         if (SASL_OK == sasl_decode64(parsed.c2s, (unsigned) strlen(parsed.c2s),
-                                     buf, SAMPLE_SEC_BUF_SIZE, &clientinlen)) {
+                                     buf, NGX_SASL_SEC_BUF_SIZE, &clientinlen)) {
           ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "decoded c2s");
           clientin = buf;
         }
       }
 
-      const char *serverout;
-      unsigned serveroutlen;
-      int result;
-      long id=0;
       if(parsed.mech) {
-        result = sasl_server_new(HTTP_SERVICE_NAME,
+        result = sasl_server_new(NGX_SASL_HTTP_SERVICE_NAME,
                                  NULL,               /* my fully qualified domain name;
                                                         NULL says use gethostname() */
                                  (char*)lcf->realm.data,    /* The user realm used for password
@@ -193,7 +184,12 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
                       "new sasl_server: %d", result);
         if(SASL_OK == result) {
-          store_conn(lcf, conn, &id);
+          do {
+            id = ngx_random();
+            if(id==0) continue; // never allow 0 id
+            (void) sc_map_get_64v(lcf->conns, id);
+          } while(sc_map_found(lcf->conns));
+          sc_map_put_64v(lcf->conns, id, conn);
           result = sasl_server_start(conn, parsed.mech,
                                      clientin, clientinlen,
                                      &serverout, &serveroutlen);
@@ -209,8 +205,9 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
           //conn = NULL;
 
           if(r->headers_out.www_authenticate) {
-            const unsigned int vallen = strlen("SASL s2c=\"\",s2s=\"\"") + 16;
-            unsigned char val[vallen], *p;
+            const unsigned int  vallen = strlen("SASL s2c=\"\",s2s=\"\"") + 16;
+            unsigned char       val[vallen], *p;
+
             p = ngx_snprintf(val, vallen, "SASL s2c=\"\",s2s=\"%p\"", parsed.s2s);
             if(vallen != (p - val)) {
               return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -234,22 +231,21 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
         return NGX_HTTP_UNAUTHORIZED;
       }
 
-      unsigned int len;
-      int result2 = sasl_encode64(serverout, serveroutlen, buf, SAMPLE_SEC_BUF_SIZE, &len);
+      result2 = sasl_encode64(serverout, serveroutlen, buf, NGX_SASL_SEC_BUF_SIZE, &len);
       if (result2 == SASL_OK) {
+        unsigned char       *val, *p;
+        const unsigned int  vallen          = strlen("SASL s2c=\"\",s2s=\"\"") + len + 16;
+        static const u_char HEADER_NAME[]   = "WWW-Authenticate";
+        static const size_t HEADER_NAME_LEN = sizeof(HEADER_NAME) - 1;
+
         //r->err_headers_out,
         //  (PROXYREQ_PROXY == r->proxyreq) ? "Proxy-Authenticate" : "WWW-Authenticate",
         //  apr_psprintf(r->pool, "SASL s2c=\"%s\",s2s=\"%s\"", buf, s2s)
-        const unsigned int vallen = strlen("SASL s2c=\"\",s2s=\"\"") + len + 16;
-        unsigned char *val, *p;
         val = ngx_palloc(r->pool, vallen);
         p = ngx_snprintf(val, vallen, "SASL s2c=\"%s\",s2s=\"%p\"", buf, id);
         if(vallen != (p - val)) {
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-
-        static const u_char   HEADER_NAME[]   = "WWW-Authenticate";
-        static const size_t HEADER_NAME_LEN = sizeof(HEADER_NAME) - 1;
 
         r->headers_out.www_authenticate = ngx_list_push(&r->headers_out.headers);
         if (r->headers_out.www_authenticate == NULL) {
@@ -314,6 +310,7 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r)
     return ngx_http_auth_sasl_unauthorized(r, lcf);
 }
 
+/*
 static ngx_int_t
 ngx_http_aut_sasl_shm_init(ngx_shm_zone_t *shm_zone, void *data)
 {
@@ -326,17 +323,18 @@ ngx_http_aut_sasl_shm_init(ngx_shm_zone_t *shm_zone, void *data)
 
     shpool = (ngx_slab_pool_t *) shm_zone->shm.addr;
 
-    //nconn = ngx_slab_alloc(shpool, 4);
-    //if (nconn == NULL) {
-    //    return NGX_ERROR;
-    //}
+    nconn = ngx_slab_alloc(shpool, 4);
+    if (nconn == NULL) {
+        return NGX_ERROR;
+    }
 
-    //*nconn = 0;
+    *nconn = 0;
 
-    //shm_zone->data = nconn;
+    shm_zone->data = nconn;
 
     return NGX_OK;
 }
+*/
 
 
 /* ========================================================================================
@@ -349,6 +347,7 @@ ngx_http_aut_sasl_shm_init(ngx_shm_zone_t *shm_zone, void *data)
 static ngx_int_t
 ngx_http_auth_sasl_init(ngx_conf_t *cf)
 {
+    int                        result;
     ngx_http_handler_pt        *h;
     ngx_http_core_main_conf_t  *cmcf;
 
@@ -362,7 +361,7 @@ ngx_http_auth_sasl_init(ngx_conf_t *cf)
     *h = ngx_http_auth_sasl_handler;
 
     // initialize sasl_server
-    int result = sasl_server_init(NULL, NULL);
+    result = sasl_server_init(NULL, NULL);
     if (result != SASL_OK) {
       return NGX_ERROR;
     }
@@ -394,6 +393,7 @@ ngx_http_auth_sasl_init(ngx_conf_t *cf)
 static void *
 ngx_http_auth_sasl_create_loc_conf(ngx_conf_t *cf)
 {
+    sasl_callback_t               *sasl_callbacks;
     ngx_http_auth_sasl_loc_conf_t *conf;
 
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_auth_sasl_loc_conf_t));
@@ -404,7 +404,7 @@ ngx_http_auth_sasl_create_loc_conf(ngx_conf_t *cf)
     conf->conns = ngx_pcalloc(cf->pool, sizeof(struct sc_map_64v));
     sc_map_init_64v(conf->conns, 0, 0);
 
-    sasl_callback_t *sasl_callbacks = ngx_pcalloc(cf->pool, sizeof(callbacks));
+    sasl_callbacks = ngx_pcalloc(cf->pool, sizeof(callbacks));
     if (sasl_callbacks == NULL) {
 		return NGX_CONF_ERROR;
     }
