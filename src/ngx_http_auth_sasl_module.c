@@ -29,10 +29,24 @@ typedef struct {
   sasl_callback_t *callbacks;
 } ngx_http_auth_sasl_loc_conf_t;
 
+typedef struct {
+	ngx_int_t secure;
+	ngx_int_t mech;
+	ngx_int_t user;
+} ngx_http_auth_sasl_var_index_t;
+
+static ngx_http_auth_sasl_var_index_t ngx_http_sasl_var_index;
+
 //static ngx_str_t    shm_name = ngx_string("sasl_contexts");
 
 #define NGX_SASL_SEC_BUF_SIZE (2048)
 #define NGX_SASL_HTTP_SERVICE_NAME "HTTP"
+
+static ngx_str_t ngx_http_auth_sasl_secure_var = ngx_string("sasl_secure");
+static ngx_str_t ngx_http_auth_sasl_mech_var = ngx_string("sasl_mech");
+static ngx_str_t ngx_http_auth_sasl_realm_var = ngx_string("sasl_realm");
+static ngx_str_t ngx_http_auth_sasl_user_var = ngx_string("sasl_user");
+static ngx_str_t ngx_http_auth_sasl_yes = ngx_string("yes");
 
 /*
  * The public interface of this module.
@@ -123,6 +137,28 @@ ngx_http_auth_sasl_unauthorized(ngx_http_request_t *r, const ngx_http_auth_sasl_
     return NGX_HTTP_UNAUTHORIZED;
 }
 
+static ngx_int_t ngx_http_auth_sasl_set_var(ngx_http_request_t *r,
+                                            const ngx_uint_t index,
+                                            ngx_str_t *val) {
+  ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                "setting variable idx(%d): %s", index, val->data);
+  ngx_http_variable_value_t *v;
+  // copying behavior from
+  // https://github.com/nginx-shib/nginx-http-shibboleth/blob/fffdfb8f7c298dc97f4a1b04fb96f4b87ddd6105/ngx_http_shibboleth_module.c#L468=
+  v = &r->variables[index];
+  if(NULL == v) {
+    return NGX_ERROR;
+  }
+
+  v->valid = 1;
+  v->not_found = 0;
+  v->no_cacheable = 1;
+  v->len = val->len;
+  v->data = val->data;
+
+  return NGX_OK;
+}
+
 static ngx_int_t
 ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
 
@@ -191,7 +227,7 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
           } while(sc_map_found(lcf->conns));
           sc_map_put_64v(lcf->conns, id, conn);
           char mech[parsed.mech_len+1];
-          memcpy(mech,parsed.mech,parsed.mech_len);
+          ngx_memcpy(mech,parsed.mech,parsed.mech_len);
           mech[parsed.mech_len]=0;
           result = sasl_server_start(conn, mech,
                                      clientin, clientinlen,
@@ -203,10 +239,6 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "loading sasl_server");
         conn = sc_map_get_64v(lcf->conns, parsed.s2s);
         if (!sc_map_found(lcf->conns)) {
-          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
-                        "sasl context not found, restarting auth dance");
-          //conn = NULL;
-
           if(r->headers_out.www_authenticate) {
             const unsigned int  vallen = strlen("SASL s2c=\"\",s2s=\"\"") + 16;
             unsigned char       val[vallen], *p;
@@ -219,6 +251,8 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
               return NGX_OK;
             }
           }
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "sasl context not found, restarting auth dance");
           return NGX_HTTP_UNAUTHORIZED;
         }
         result = sasl_server_step(conn, clientin, clientinlen, &serverout, &serveroutlen);
@@ -241,10 +275,15 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
         static const u_char HEADER_NAME[]   = "WWW-Authenticate";
         static const size_t HEADER_NAME_LEN = sizeof(HEADER_NAME) - 1;
 
+        // todo? apachemod does:
         //r->err_headers_out,
         //  (PROXYREQ_PROXY == r->proxyreq) ? "Proxy-Authenticate" : "WWW-Authenticate",
         //  apr_psprintf(r->pool, "SASL s2c=\"%s\",s2s=\"%s\"", buf, s2s)
+
         val = ngx_palloc(r->pool, vallen);
+        if (NULL == val) {
+          return NGX_ERROR;
+        }
         p = ngx_snprintf(val, vallen, "SASL s2c=\"%s\",s2s=\"%p\"", buf, id);
         if(vallen != (p - val)) {
           return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -262,32 +301,54 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "sasl header set");
 
         if (result == SASL_OK) {
+          /* successfully authenticated */
           ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "sasl_ok");
-          // todo? in the apache mod it sets some env vars for subprocess.
-          //const char *user;
-          //r->user = "unknown";
-          //if (sasl_getprop(conn, SASL_USERNAME, (const void**) &user) == SASL_OK) {
-          //  r->user = apr_pstrdup(r->pool, user);
-          //}
-          //note = apr_psprintf(r->pool, "r->user = %s", r->user);
-          //trace_nocontext(r->pool, __FILE__, __LINE__, note);
-          //apr_table_setn(r->subprocess_env, "SASL_SECURE", "yes");
-          //set_prop_envvar(conn, r->subprocess_env, SASL_MECHNAME, "SASL_MECH");
-          //char *realm = dconf->server_realm;
-          //if (realm) {
-          //  apr_table_setn(r->subprocess_env, "SASL_REALM", realm);
-          //} else {
-          //  apr_table_unset(r->subprocess_env, "SASL_REALM");
-          //}
-          ///*
-          //  Unusable s2s so don't set SASL_S2S
-          //  apr_table_setn(r->subprocess_env, "SASL_S2S", s2s);
-          //*/
-          //apr_table_unset(r->subprocess_env, "SASL_S2S");
-          //apr_table_unset(r->subprocess_env, "SASL_S2S_");
-          //rc = OK;
 
-          ///* remove cyrus sasl connection for hash table ... */
+          /* set variable: sasl_user */
+          ngx_str_t user;
+          char *user_p;
+          if (sasl_getprop(conn, SASL_USERNAME, (const void**) &user_p) != SASL_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "failed to query SASL_USERNAME");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          user.len = ngx_strlen(user_p);
+          user.data = ngx_palloc(r->pool, user.len);
+          if (user.data == NULL) {
+            return NGX_ERROR;
+          }
+          ngx_memcpy(user.data, user_p, user.len);
+          if(NGX_OK!=ngx_http_auth_sasl_set_var(r,ngx_http_sasl_var_index.user, &user)) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "failed to set variable: user");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          };
+
+          /* set variable: sasl_secure */
+          if(NGX_OK!=ngx_http_auth_sasl_set_var(r,ngx_http_sasl_var_index.secure,
+                                                &ngx_http_auth_sasl_yes)) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "failed to set variable: secure");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          };
+
+          /* set variable: sasl_mech */
+          ngx_str_t mech;
+          char *mech_p;
+          if (sasl_getprop(conn, SASL_MECHNAME, (const void**) &mech_p) != SASL_OK) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "failed to query SASL_MECHNAME");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          }
+          mech.len = ngx_strlen(mech_p);
+          mech.data = ngx_palloc(r->pool, mech.len);
+          if (mech.data == NULL) {
+            return NGX_ERROR;
+          }
+          ngx_memcpy(mech.data, mech_p, mech.len);
+          if(NGX_OK!=ngx_http_auth_sasl_set_var(r,ngx_http_sasl_var_index.mech, &mech)) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "failed to set variable: mech");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+          };
+
+          /* remove cyrus sasl connection for hash table ... */
           (void) sc_map_del_64v(lcf->conns, id);
           if (!sc_map_found(lcf->conns)) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -309,6 +370,37 @@ ngx_http_auth_sasl_handler(ngx_http_request_t *r) {
     // no authorize header
     return ngx_http_auth_sasl_unauthorized(r, lcf);
 }
+
+/* Variables */
+static ngx_int_t ngx_http_auth_sasl_get_realm_var (ngx_http_request_t *r,
+                                                   ngx_http_variable_value_t *v,
+                                                   uintptr_t data) {
+    u_char  *p;
+    ngx_http_auth_sasl_loc_conf_t  *lcf;
+    lcf = ngx_http_get_module_loc_conf(r, ngx_http_auth_sasl_module);
+
+    p = ngx_pnalloc(r->pool, lcf->sasl_realm.len);
+    if (p == NULL) {
+        return NGX_ERROR;
+    }
+
+    v->len = lcf->sasl_realm.len;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+    v->data = lcf->sasl_realm.data;
+
+    return NGX_OK;
+}
+
+static ngx_int_t ngx_http_auth_sasl_variable(ngx_http_request_t *r,
+                                             ngx_http_variable_value_t *v, uintptr_t data) {
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "get http auth sasl variable");
+    //v->not_found = 0;
+    return NGX_OK;
+}
+
 
 /*
 static ngx_int_t
@@ -340,6 +432,63 @@ ngx_http_aut_sasl_shm_init(ngx_shm_zone_t *shm_zone, void *data)
 /* ========================================================================================
  * Configuration
  * ======================================================================================== */
+
+static ngx_int_t ngx_http_auth_sasl_preconf(ngx_conf_t * cf) {
+  ngx_int_t n;
+  ngx_http_variable_t  *v;
+  ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_preconf()");
+
+  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_realm_var, 0);
+  if (v == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_realm");
+    return NGX_ERROR;
+  }
+  v->get_handler=ngx_http_auth_sasl_get_realm_var;
+
+  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_secure_var, 0);
+  if (v == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_secure");
+    return NGX_ERROR;
+  }
+  v->get_handler=ngx_http_auth_sasl_variable;
+  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_secure_var);
+  if (n == NGX_ERROR) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_secure");
+    return NGX_ERROR;
+  }
+  ngx_http_sasl_var_index.secure = n;
+  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_secure idx=%d", ngx_http_sasl_var_index.secure);
+
+  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_mech_var, 0);
+  if (v == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_mech");
+    return NGX_ERROR;
+  }
+  v->get_handler=ngx_http_auth_sasl_variable;
+  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_mech_var);
+  if (n == NGX_ERROR) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_mech");
+    return NGX_ERROR;
+  }
+  ngx_http_sasl_var_index.mech = n;
+  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_mech idx=%d", ngx_http_sasl_var_index.mech);
+
+  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_user_var, 0);
+  if (v == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_user");
+    return NGX_ERROR;
+  }
+  v->get_handler=ngx_http_auth_sasl_variable;
+  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_user_var);
+  if (n == NGX_ERROR) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_user");
+    return NGX_ERROR;
+  }
+  ngx_http_sasl_var_index.user = n;
+  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_user idx=%d", ngx_http_sasl_var_index.user);
+
+  return NGX_OK;
+}
 
 /*
  * Registers our request access phase handler.
@@ -374,7 +523,6 @@ ngx_http_auth_sasl_init(ngx_conf_t *cf)
       ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "mech: %s", mech);
     }
 #endif
-
     // todo
     //lmcf->shm_zone = ngx_shared_memory_add(cf, &shm_name, ngx_pagesize * 2,
     //                                     &ngx_http_auth_sasl_module);
@@ -408,7 +556,7 @@ ngx_http_auth_sasl_create_loc_conf(ngx_conf_t *cf)
     if (sasl_callbacks == NULL) {
 		return NGX_CONF_ERROR;
     }
-    memcpy(sasl_callbacks, callbacks, sizeof(callbacks));
+    ngx_memcpy(sasl_callbacks, callbacks, sizeof(callbacks));
     sasl_callbacks[0].context = conf;
 
     conf->callbacks = sasl_callbacks;
@@ -460,6 +608,7 @@ ngx_http_auth_sasl_post_handler(ngx_conf_t *cf, void *post, void *data)
 
     return NGX_CONF_OK;
 }
+
 
 static ngx_conf_post_t ngx_http_auth_sasl_post = {
     ngx_http_auth_sasl_post_handler          /* post_handler */
@@ -513,7 +662,7 @@ static ngx_command_t ngx_http_auth_sasl_commands[] = {
  * ======================================================================================== */
 
 static ngx_http_module_t ngx_http_auth_sasl_module_ctx = {
-    NULL,                                 /* preconfiguration */
+    ngx_http_auth_sasl_preconf,           /* preconfiguration */
     ngx_http_auth_sasl_init,              /* postconfiguration */
 
     NULL,                                 /* create main configuration */
