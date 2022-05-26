@@ -60,6 +60,31 @@ possible for a web server to welcome foreign clients.
 Indicates the mechanism used, and is one of the standardised SASL
 mechanism names. It may be used to detect the level of security.
 
+** Config
+
+A minimal example config with verbose logging:
+
+#+BEGIN_EXAMPLE
+error_log logs/error.log debug;
+events { }
+http {
+   auth_sasl localhost;
+   sasl_realm localhost;
+   sasl_mechanisms "OPAQUE";
+   sasl_db_path /usr/local/etc/sasldb2;
+
+   add_header X-SASL-SECURE $sasl_secure;
+   add_header X-REMOTE-USER $sasl_user;
+   add_header X-SASL-REALM $sasl_realm;
+   add_header X-SASL-MECH $sasl_mech;
+
+   server {
+       listen *:8090;
+       root .;
+   }
+}
+#+END_EXAMPLE
+
 ** Credits
 
 This project was funded through the NGI0 PET Fund, a fund established
