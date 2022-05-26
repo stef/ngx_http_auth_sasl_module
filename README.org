@@ -35,6 +35,31 @@ server, otherwise it will not succeed, thus a load balancer must make
 sure that the same backend server is used for the whole of a SASL auth
 execution.
 
+** Variables
+
+This module setst the following nginx variables:
+
+*** sasl_secure
+Is only "yes" (without the quotes) when a client is authenticated to
+the current resource. It never has another value; it is simply
+undefined when not secured by SASL
+
+*** sasl_realm
+Is the realm for which the secure exchange succeeded. A realm is not
+always used, because sites only need it when there are more than one
+in the same name space. When undefined in the SASL flow, this variable
+will not be set.
+
+*** sasl_user
+Is the client identity as confirmed through SASL authentication. Its
+content is formatted like an email address, and includes a domain
+name. That domain need not be related to the web server; it is
+possible for a web server to welcome foreign clients.
+
+*** sasl_mech
+Indicates the mechanism used, and is one of the standardised SASL
+mechanism names. It may be used to detect the level of security.
+
 ** Credits
 
 This project was funded through the NGI0 PET Fund, a fund established
