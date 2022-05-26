@@ -433,6 +433,26 @@ ngx_http_aut_sasl_shm_init(ngx_shm_zone_t *shm_zone, void *data)
  * Configuration
  * ======================================================================================== */
 
+static ngx_int_t ngx_http_auth_sasl_add_var(ngx_conf_t * cf, ngx_str_t *key, ngx_int_t *idx) {
+  ngx_http_variable_t  *v;
+  ngx_int_t n;
+  v = ngx_http_add_variable(cf, key, 0);
+  if (v == NULL) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable %s", key->data);
+    return NGX_ERROR;
+  }
+  v->get_handler=ngx_http_auth_sasl_variable;
+  n = ngx_http_get_variable_index(cf, key);
+  if (n == NGX_ERROR) {
+    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index %s", key->data);
+    return NGX_ERROR;
+  }
+  *idx = n;
+  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "%s idx=%d", key->data, n);
+
+  return NGX_OK;
+}
+
 static ngx_int_t ngx_http_auth_sasl_preconf(ngx_conf_t * cf) {
   ngx_int_t n;
   ngx_http_variable_t  *v;
@@ -445,47 +465,20 @@ static ngx_int_t ngx_http_auth_sasl_preconf(ngx_conf_t * cf) {
   }
   v->get_handler=ngx_http_auth_sasl_get_realm_var;
 
-  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_secure_var, 0);
-  if (v == NULL) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_secure");
+  if(NGX_ERROR==ngx_http_auth_sasl_add_var(cf,&ngx_http_auth_sasl_secure_var,
+                                           &ngx_http_sasl_var_index.secure)) {
     return NGX_ERROR;
   }
-  v->get_handler=ngx_http_auth_sasl_variable;
-  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_secure_var);
-  if (n == NGX_ERROR) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_secure");
-    return NGX_ERROR;
-  }
-  ngx_http_sasl_var_index.secure = n;
-  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_secure idx=%d", ngx_http_sasl_var_index.secure);
 
-  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_mech_var, 0);
-  if (v == NULL) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_mech");
+  if(NGX_ERROR==ngx_http_auth_sasl_add_var(cf,&ngx_http_auth_sasl_mech_var,
+                                           &ngx_http_sasl_var_index.mech)) {
     return NGX_ERROR;
   }
-  v->get_handler=ngx_http_auth_sasl_variable;
-  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_mech_var);
-  if (n == NGX_ERROR) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_mech");
-    return NGX_ERROR;
-  }
-  ngx_http_sasl_var_index.mech = n;
-  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_mech idx=%d", ngx_http_sasl_var_index.mech);
 
-  v = ngx_http_add_variable(cf, &ngx_http_auth_sasl_user_var, 0);
-  if (v == NULL) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to add variable sasl_user");
+  if(NGX_ERROR==ngx_http_auth_sasl_add_var(cf,&ngx_http_auth_sasl_user_var,
+                                           &ngx_http_sasl_var_index.user)) {
     return NGX_ERROR;
   }
-  v->get_handler=ngx_http_auth_sasl_variable;
-  n = ngx_http_get_variable_index(cf, &ngx_http_auth_sasl_user_var);
-  if (n == NGX_ERROR) {
-    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "failed to get variable index sasl_user");
-    return NGX_ERROR;
-  }
-  ngx_http_sasl_var_index.user = n;
-  //ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_user idx=%d", ngx_http_sasl_var_index.user);
 
   return NGX_OK;
 }
