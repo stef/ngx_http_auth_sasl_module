@@ -2,6 +2,9 @@
 
 This is experimental.
 
+It implements this RFC draft:
+https://datatracker.ietf.org/doc/html/draft-vanrein-httpauth-sasl
+
 ** Dependencies
 If you want to build this, it expects an nginx source tree in '../nginx'
 
