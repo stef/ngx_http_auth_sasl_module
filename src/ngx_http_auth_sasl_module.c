@@ -454,7 +454,6 @@ static ngx_int_t ngx_http_auth_sasl_add_var(ngx_conf_t * cf, ngx_str_t *key, ngx
 }
 
 static ngx_int_t ngx_http_auth_sasl_preconf(ngx_conf_t * cf) {
-  ngx_int_t n;
   ngx_http_variable_t  *v;
   ngx_conf_log_error(NGX_LOG_DEBUG, cf, 0, "sasl_preconf()");
 
